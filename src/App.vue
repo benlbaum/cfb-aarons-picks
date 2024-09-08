@@ -4,13 +4,46 @@
 
     <!-- Centered Week Selector without the label -->
     <div class="week-dropdown">
-      <select id="week-select" v-model="selectedWeek" @change="changeWeek">
-        <option v-for="week in weeks" :key="week" :value="week">Week {{ week }}</option>
+      <select v-model="selectedWeek" @change="changeWeek">
+        <option v-for="week in weeks" :key="week" :value="week">
+          {{ week === 'Season Overview' ? 'Season Overview' : `Week ${week}` }}
+        </option>
       </select>
     </div>
 
-    <!-- Table or No Data message -->
-    <div v-if="hasData">
+    <!-- Season Overview Table -->
+    <div v-if="selectedWeek === 'Season Overview' && hasData">
+      <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">Week</th>
+            <th rowspan="2">Aaron's Total Correct</th>
+            <th colspan="4">Correct Predictions by Predicted Win %</th>
+          </tr>
+          <tr>
+            <th>>90%</th>
+            <th>>80%</th>
+            <th>>70%</th>
+            <th>>60%</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(overview, index) in overviewData" :key="index">
+            <td>{{ overview.week }}</td>
+            <td>{{ overview.totalCorrect }}</td>
+            <td>{{ overview.winProb90 }}</td>
+            <td>{{ overview.winProb80 }}</td>
+            <td>{{ overview.winProb70 }}</td>
+            <td>{{ overview.winProb60 }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+
+    <!-- Individual Week Data Table -->
+    <div v-else-if="hasData">
       <div class="table-container">
         <table>
           <thead>
@@ -50,11 +83,14 @@
         </table>
       </div>
     </div>
+
+    <!-- No Data Message -->
     <div v-else>
       <p>No Data for Week {{ selectedWeek }}</p>
     </div>
   </div>
 </template>
+
 
 <script>
 import axios from 'axios';
@@ -63,16 +99,18 @@ export default {
   data() {
     return {
       games: [],
+      overviewData: [],  // Store season overview data
       sortOrder: {
         column: '',
         direction: ''  // 'asc' or 'desc'
       },
-      selectedWeek: 2,  // Default to Week 2
-      weeks: Array.from({ length: 16 }, (v, i) => i + 1),  // Array of weeks from 1 to 16
+      // Initialize selectedWeek from localStorage, default to 'Season Overview' if nothing is saved
+      selectedWeek: localStorage.getItem('selectedWeek') || 'Season Overview',
+      weeks: ['Season Overview', ...Array.from({ length: 16 }, (v, i) => (i + 1).toString())],  // Add 'Season Overview' and weeks 1 to 16
       sheetId: process.env.VUE_APP_SHEET_ID,  // Google Sheet ID
       apiKey: process.env.VUE_APP_API_KEY,  // Google API Key
       hasData: true,  // Determines if data exists for the selected week
-      pageTitle: "CFB Aaron's Picks - Week 2",  // Default title
+      pageTitle: "",  // Title will be set dynamically based on the selected week
     };
   },
   computed: {
@@ -98,36 +136,63 @@ export default {
   },
   methods: {
     fetchData() {
-      const range = `Week${this.selectedWeek}!A1:O100`;  // Use selected week in range
+      let range;
+      
+      // Handle the case for 'Season Overview' sheet
+      if (this.selectedWeek === 'Season Overview') {
+        range = `Season Overview!A1:O100`;
+        this.pageTitle = `CFB Aaron's Picks - Season Overview`;
+      } else {
+        range = `Week${this.selectedWeek}!A1:O100`;
+        this.pageTitle = `CFB Aaron's Picks - Week ${this.selectedWeek}`;
+      }
+
       const googleSheetAPIUrl = `https://sheets.googleapis.com/v4/spreadsheets/${this.sheetId}/values/${range}?key=${this.apiKey}`;
 
       axios.get(googleSheetAPIUrl)
         .then(response => {
           const rows = response.data.values;
-          if (!rows || rows.length === 0) {
-            this.hasData = false;  // No data found for this week
-            this.games = [];
+          
+          if (this.selectedWeek === 'Season Overview') {
+            // Handle Season Overview parsing
+            this.hasData = rows && rows.length > 1;
+            if (this.hasData) {
+              this.overviewData = rows.slice(1).map(row => ({
+                week: row[0],  // Week
+                totalCorrect: row[1],  // Aaron's Total Correct
+                winProb90: row[2],  // >90% Win Prob Correct
+                winProb80: row[3],  // >80% Win Prob Correct
+                winProb70: row[4],  // >70% Win Prob Correct
+                winProb60: row[5]   // >60% Win Prob Correct
+              }));
+            }
           } else {
-            this.hasData = true;
-            this.games = rows.slice(1).map(row => ({
-              awayTeam: row[0],
-              homeTeam: row[1],
-              aaronPick: row[2],
-              aaronWinProb: row[3],
-              awayDKOdds: row[4],
-              dkAwayWinProb: row[5],
-              awayValue: row[6],
-              awayValueGap: row[7],
-              homeDKOdds: row[8],
-              dkHomeWinProb: row[9],
-              homeValue: row[10],
-              homeValueGap: row[11],
-              aaronCorrect: row[14]  // Adjusted to pull from column O
-            }));
+            // Handle individual week data parsing (as before)
+            if (!rows || rows.length === 0) {
+              this.hasData = false;
+              this.games = [];
+            } else {
+              this.hasData = true;
+              this.games = rows.slice(1).map(row => ({
+                awayTeam: row[0],
+                homeTeam: row[1],
+                aaronPick: row[2],
+                aaronWinProb: row[3],
+                awayDKOdds: row[4],
+                dkAwayWinProb: row[5],
+                awayValue: row[6],
+                awayValueGap: row[7],
+                homeDKOdds: row[8],
+                dkHomeWinProb: row[9],
+                homeValue: row[10],
+                homeValueGap: row[11],
+                aaronCorrect: row[14]
+              }));
+            }
           }
         })
         .catch(() => {
-          this.hasData = false;  // Handle cases where the sheet for the week doesn't exist
+          this.hasData = false;  // Handle cases where the sheet for the week/overview doesn't exist
         });
     },
     sortColumn(column) {
@@ -140,15 +205,21 @@ export default {
       }
     },
     changeWeek() {
-      this.pageTitle = `CFB Aaron's Picks - Week ${this.selectedWeek}`;
-      this.fetchData();  // Fetch data for the new selected week
+      // Save the current selected week to localStorage
+      localStorage.setItem('selectedWeek', this.selectedWeek);
+      this.fetchData();  // Fetch data for the new selected week/overview
     }
   },
   mounted() {
-    this.fetchData();  // Fetch data for the default week (Week 2)
+    this.pageTitle = `CFB Aaron's Picks - ${this.selectedWeek === 'Season Overview' ? 'Season Overview' : 'Week ' + this.selectedWeek}`;
+    this.fetchData();  // Fetch data for the saved or default week
   }
 };
 </script>
+
+
+
+
 
 <style scoped>
 /* General Dark Mode Styles */
@@ -161,12 +232,6 @@ export default {
   margin: 0;  /* Remove margin */
   border: none; /* Ensure no borders */
   box-sizing: border-box; /* Ensure padding doesn't create extra space */
-}
-
-body, html {
-  margin: 0;  /* Remove default margin from body and html */
-  padding: 0; /* Remove default padding */
-  box-sizing: border-box;
 }
 
 h1 {
