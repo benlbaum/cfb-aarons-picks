@@ -115,19 +115,29 @@ export default {
   },
   computed: {
     filteredAndSortedGames() {
-      let sorted = this.games;
+      let sorted = [...this.games]; // Create a shallow copy to avoid mutating the original array
 
-      // Apply sorting if a column is selected
       if (this.sortOrder.column) {
-        sorted = sorted.sort((a, b) => {
+        sorted.sort((a, b) => {
           let valA = a[this.sortOrder.column];
           let valB = b[this.sortOrder.column];
 
-          if (this.sortOrder.direction === 'asc') {
-            return valA > valB ? 1 : -1;
-          } else {
-            return valA < valB ? 1 : -1;
+          // Convert to numbers if possible
+          if (!isNaN(valA) && !isNaN(valB)) {
+            valA = Number(valA);
+            valB = Number(valB);
           }
+
+          // Handle null or undefined values
+          if (valA == null) return 1;
+          if (valB == null) return -1;
+
+          if (typeof valA === 'string') valA = valA.toLowerCase();
+          if (typeof valB === 'string') valB = valB.toLowerCase();
+
+          if (valA < valB) return this.sortOrder.direction === 'asc' ? -1 : 1;
+          if (valA > valB) return this.sortOrder.direction === 'asc' ? 1 : -1;
+          return 0;
         });
       }
 
